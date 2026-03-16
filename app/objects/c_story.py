@@ -30,67 +30,89 @@ class Story:
         Story._header_logo_path = header_logo_path
 
     @staticmethod
+    def _page_margins(canvas, doc):
+        """Return (left, right, top, bottom) margins appropriate for the current page.
+
+        Landscape pages use the frame margins (18pt) rather than the doc-level
+        portrait margins (72/84pt).
+        """
+        page_w, page_h = canvas._pagesize
+        if page_w > page_h:  # landscape
+            frame = doc.frame if hasattr(doc, 'frame') else None
+            if frame:
+                lm = frame._x1
+                bm = frame._y1
+                rm = page_w - frame._x1 - frame._width
+                tm = page_h - frame._y1 - frame._height
+                return lm, rm, tm, bm
+        return doc.leftMargin, doc.rightMargin, doc.topMargin, doc.bottomMargin
+
+    @staticmethod
     def header_footer_first(canvas, doc):
-        # Save the state of our canvas so we can draw on it
         canvas.saveState()
+
+        page_w, page_h = canvas._pagesize
+        lm, rm, tm, bm = Story._page_margins(canvas, doc)
 
         # Header
         caldera_logo = "./plugins/debrief/static/img/caldera.png"
         im = Image(caldera_logo, 1.5 * inch, 1 * inch)
-        im.drawOn(canvas, doc.leftMargin, doc.height + doc.topMargin - im.drawHeight / 2)
+        header_y = page_h - tm
+        im.drawOn(canvas, lm, header_y - im.drawHeight / 2)
 
         if Story._header_logo_path:
             Story.draw_header_logo(canvas, doc, Story._header_logo_path)
 
         canvas.setStrokeColor(colors.maroon)
         canvas.setLineWidth(4)
-        canvas.line(doc.leftMargin + im.drawWidth + 5,
-                    doc.height + doc.topMargin,
-                    doc.width + doc.leftMargin,
-                    doc.height + doc.topMargin)
+        canvas.line(lm + im.drawWidth + 5, header_y,
+                    page_w - rm, header_y)
 
         # Footer
         page_num = canvas.getPageNumber()
         text = "Page %s" % page_num
-        canvas.drawRightString(doc.width + doc.rightMargin * 1.5, doc.bottomMargin / 2, text)
+        canvas.drawRightString(page_w - rm, bm / 2, text)
 
-        # Release the canvas
         canvas.restoreState()
 
     @staticmethod
     def header_footer_rest(canvas, doc):
-        # Save the state of our canvas so we can draw on it
         canvas.saveState()
+
+        page_w, page_h = canvas._pagesize
+        lm, rm, tm, bm = Story._page_margins(canvas, doc)
 
         # Header
         if Story._header_logo_path:
             Story.draw_header_logo(canvas, doc, Story._header_logo_path)
 
-        canvas.setFillColor(colors.maroon)
-        canvas.setFont('Helvetica-Bold', 18)
-        canvas.drawString(doc.leftMargin, doc.height + doc.topMargin * 1.25, 'OPERATIONS DEBRIEF')
-        canvas.setStrokeColor(colors.maroon)
-        canvas.setLineWidth(4)
-        canvas.line(doc.leftMargin,
-                    doc.height + doc.topMargin * 1.25 - 5,
-                    doc.width + doc.leftMargin,
-                    doc.height + doc.topMargin * 1.25 - 5)
+        is_landscape = page_w > page_h
+        if not is_landscape:
+            # Portrait pages have room for the full header
+            header_y = page_h - tm * 0.75
+            canvas.setFillColor(colors.maroon)
+            canvas.setFont('Helvetica-Bold', 18)
+            canvas.drawString(lm, header_y, 'OPERATIONS DEBRIEF')
+            canvas.setStrokeColor(colors.maroon)
+            canvas.setLineWidth(4)
+            canvas.line(lm, header_y - 5, page_w - rm, header_y - 5)
+        # Landscape pages: skip header — 18pt margin is too narrow
 
         # Footer
         canvas.setFillColor(colors.black)
         canvas.setFont('Helvetica', 10)
         page_num = canvas.getPageNumber()
         text = "Page %s" % page_num
-        canvas.drawRightString(doc.width + doc.rightMargin * 1.5, doc.bottomMargin / 2, text)
+        canvas.drawRightString(page_w - rm, bm / 2, text)
 
-        # Release the canvas
         canvas.restoreState()
 
     @staticmethod
     def draw_header_logo(canvas, doc, logo_path):
+        page_w, page_h = canvas._pagesize
         im = Image(logo_path, 2.5 * inch, 0.75 * inch)
-        im.drawOn(canvas, doc.width + doc.leftMargin + doc.rightMargin - im.drawWidth - 10,
-                  doc.height + doc.topMargin + doc.bottomMargin - im.drawHeight - 10)
+        im.drawOn(canvas, page_w - im.drawWidth - 10,
+                  page_h - im.drawHeight - 10)
 
     @staticmethod
     def adjust_icon_svgs(path):
@@ -99,12 +121,16 @@ class Story:
         for icon_svg in svg.getroot().iter("{http://www.w3.org/2000/svg}svg"):
             if icon_svg.get('id') == 'copy-svg':
                 continue
-            viewbox = [int(float(val)) for val in icon_svg.get('viewBox').split()]
+            viewbox_attr = icon_svg.get('viewBox')
+            if not viewbox_attr:
+                continue
+            viewbox = [int(float(val)) for val in viewbox_attr.split()]
             aspect = viewbox[2] / viewbox[3]
             icon_svg.set('width', str(round(float(icon_svg.get('height')) * aspect)))
             if not icon_svg.get('id') or 'legend' not in icon_svg.get('id'):
                 icon_svg.set('x', '-' + str(int(icon_svg.get('width')) / 2))
-        svg.write(open(path, 'wb'))
+        with open(path, 'wb') as f:
+            svg.write(f)
 
     @staticmethod
     def get_table_object(val):
